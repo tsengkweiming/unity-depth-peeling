@@ -43,6 +43,7 @@ Shader "Hidden/Depth Peeling/Composite" {
 			
 			#pragma vertex vert
 			#pragma fragment frag
+            #pragma multi_compile ALPHA_BLEND ADDITIVE
 
 			sampler2D _MainTex;
 			sampler2D _LayerTex;
@@ -67,7 +68,11 @@ Shader "Hidden/Depth Peeling/Composite" {
 			fixed4 frag(v2f i) : SV_Target {
 				fixed4 col = tex2D(_MainTex, i.uv);
 				fixed4 layer = tex2D(_LayerTex, i.uv);
+				#if defined(ALPHA_BLEND)
 				return layer.a * layer + (1 - layer.a) * col;
+				#elif defined(ADDITIVE)
+				return col + (layer * layer.a);
+				#endif
 			}
 			
 			ENDCG

@@ -28,14 +28,14 @@ public class Instance : MonoBehaviour
     [SerializeField] private Shader _shader;
     [SerializeField] private bool _zwrite;
     [SerializeField] private CompareFunction _compareFunction;
+    [SerializeField] private BlendMode _srcFactor;
+    [SerializeField] private BlendMode _dstFactor;
     private GraphicsBuffer[] _dataBuffers;
     private GraphicsBuffer _argsBuffer;
     private GraphicsBuffer[][] _argsBuffers;
     private CommandBuffer _commandBuffer;
     private Material[] _materials;
-    private Camera _camera;
     private readonly uint[] _args = { 0, 0, 0, 0, 0 };
-    public CommandBuffer CommandBuffer => _commandBuffer;
     void Start()
     {
         _materials  = new Material[_instanceProps.Length];
@@ -44,7 +44,6 @@ public class Instance : MonoBehaviour
             _materials[i] = new Material(_shader);
         }
         InitBuffer();
-        _camera = Camera.main;
     }
 
     void InitBuffer()
@@ -84,26 +83,23 @@ public class Instance : MonoBehaviour
         }
     }
 
-    private void Update()
-    {
-        // UpdateCommandBuffer();
-    }
-
     public void UpdateCommandBuffer(RenderTexture color0, RenderTexture color1, RenderTexture depthRT, 
-        Color? backgroundColor = null, RTClearFlags clearFlags = RTClearFlags.Color | RTClearFlags.Depth)
+        Color? backgroundColor = null, RTClearFlags clearFlags = RTClearFlags.Color | RTClearFlags.Depth, RenderTexture prevDepth = null)
     {
-        // RemoveCommandBuffer();
+        RemoveCommandBuffer();
         _commandBuffer = new CommandBuffer{ name = "Renderer" };
-        var rtIds = new RenderTargetIdentifier[] { new (color0.colorBuffer), new (color1.colorBuffer) };
-        _commandBuffer.SetRenderTarget(rtIds, new RenderTargetIdentifier(depthRT.depthBuffer));
+        var colorIds = new RenderTargetIdentifier[] { new (color0.colorBuffer), new (color1.colorBuffer) };
+        var depthId = new RenderTargetIdentifier(depthRT.depthBuffer);
+        _commandBuffer.SetRenderTarget(colorIds, depthId);
         var clearColor = backgroundColor ?? Color.clear;
         _commandBuffer.ClearRenderTarget(clearFlags, clearColor, 1, 0);
-        // _commandBuffer.ClearRenderTarget(false, false, Color.clear);
 
         for (var i = 0; i < _instanceProps.Length; i++)
         {
             _materials[i].SetFloat("_ZWrite", _zwrite ? 1 : 0);
             _materials[i].SetFloat("_ZTest", (int)_compareFunction);
+            _materials[i].SetFloat("_SrcFactor", (int)_srcFactor);
+            _materials[i].SetFloat("_DstFactor", (int)_dstFactor);
             _materials[i].SetFloat("_Scale", _instanceProps[i].Scale);
             _materials[i].SetFloat("_Alpha", _instanceProps[i].Alpha);
             _materials[i].SetTexture("_MainTex", _instanceProps[i].Texture);
@@ -122,18 +118,15 @@ public class Instance : MonoBehaviour
                 _commandBuffer.DrawMeshInstancedIndirect(mesh, sm, _materials[i], -1, _argsBuffers[i][sm]);
             }
         }
-        // Graphics.ExecuteCommandBuffer(_commandBuffer);
-        // _camera?.AddCommandBuffer(CameraEvent.AfterForwardOpaque, _commandBuffer);
     }
 
     public void ExecuteCommandBuffer()
     {
         Graphics.ExecuteCommandBuffer(_commandBuffer);
     }
-    public void RemoveCommandBuffer()
+    private void RemoveCommandBuffer()
     {
         if (_commandBuffer == null) return;
-        // _camera?.RemoveCommandBuffer(CameraEvent.AfterForwardOpaque, _commandBuffer);
         _commandBuffer.Release();
         _commandBuffer = null;
     }
@@ -176,7 +169,6 @@ public class Instance : MonoBehaviour
     
     private void OnDestroy()
     {
-        // _camera?.RemoveCommandBuffer(CameraEvent.AfterForwardOpaque, _commandBuffer);
         _commandBuffer?.Release();
         _commandBuffer = null;
         

@@ -43,7 +43,6 @@ Shader "Hidden/Instanced_DepthPeeling"
         uint   bufferID : SV_InstanceID;
         float4 vertex : SV_POSITION;
         float  depth : DEPTH;
-    	// float  clipD0 : SV_ClipDistance0;
         float2 uv : TEXCOORD0;
         float4 worldPos : TEXCOORD1;
         float4 screenPos : TEXCOORD2;
@@ -84,8 +83,8 @@ Shader "Hidden/Instanced_DepthPeeling"
         OUT.uv = v.texcoord;
         // screen
     	OUT.screenPos = ComputeScreenPos(UnityWorldToClipPos(worldPos));
-        // OUT.depth = -mul(UNITY_MATRIX_V, worldPos).z * _ProjectionParams.w;
-		OUT.depth = COMPUTE_DEPTH_01;//OUT.vertex.z / OUT.vertex.w;
+        OUT.depth = -mul(UNITY_MATRIX_V, worldPos).z * _ProjectionParams.w;
+		// OUT.depth = COMPUTE_DEPTH_01;//OUT.vertex.z / OUT.vertex.w;
 
 		// Camera-space depth
 		OUT.z = abs(mul(UNITY_MATRIX_V, worldPos).z);
@@ -95,7 +94,7 @@ Shader "Hidden/Instanced_DepthPeeling"
     f2s frag(v2f IN) : SV_Target
     {
     	#ifdef DEPTH_PEELING
-		float depth = i.depth;
+		float depth = IN.depth;
 		float prevDepth = DecodeFloatRGBA(tex2Dproj(_PrevDepthTex, UNITY_PROJ_COORD(IN.screenPos)));
 
 		clip(depth - (prevDepth + 0.00001));
@@ -124,7 +123,7 @@ Shader "Hidden/Instanced_DepthPeeling"
 			Name "Forward_Pass"
             ZWrite [_ZWrite]
 			ZTest  [_ZTest]
-            Blend 0 One Zero
+            Blend 0 [_SrcFactor] [_DstFactor]
             Blend 1 One Zero
 			CGPROGRAM
                 #pragma target 5.0

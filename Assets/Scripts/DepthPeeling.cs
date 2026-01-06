@@ -15,7 +15,6 @@ public class DepthPeeling : MonoBehaviour
     [SerializeField] private BlendMode _srcFactor;
     [SerializeField] private BlendMode _dstFactor;
     private Material _compositeMaterial;
-    private CommandBuffer _commandBuffer;
     private RenderTexture _allTexture = null;
     private RenderTexture[] _depthTextures = null;
     private RenderTexture[] _colorTextures = null;
@@ -131,8 +130,6 @@ public class DepthPeeling : MonoBehaviour
             _compositeMaterial = null;
         }
         
-        _commandBuffer?.Release();
-        _commandBuffer = null;
         ReleaseRenderTextures();
         _colorTextures = null;
     }

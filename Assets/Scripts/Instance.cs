@@ -86,8 +86,8 @@ public class Instance : MonoBehaviour
     public void UpdateCommandBuffer(RenderTexture color0, RenderTexture color1, RenderTexture depthRT, 
         Color? backgroundColor = null, RTClearFlags clearFlags = RTClearFlags.Color | RTClearFlags.Depth, RenderTexture prevDepth = null)
     {
-        RemoveCommandBuffer();
-        _commandBuffer = new CommandBuffer{ name = "Renderer" };
+        _commandBuffer ??= new CommandBuffer { name = "Renderer" };
+        _commandBuffer.Clear();
         var colorIds = new RenderTargetIdentifier[] { new (color0.colorBuffer), new (color1.colorBuffer) };
         var depthId = new RenderTargetIdentifier(depthRT.depthBuffer);
         _commandBuffer.SetRenderTarget(colorIds, depthId);
@@ -126,8 +126,7 @@ public class Instance : MonoBehaviour
     }
     private void RemoveCommandBuffer()
     {
-        if (_commandBuffer == null) return;
-        _commandBuffer.Release();
+        _commandBuffer?.Release();
         _commandBuffer = null;
     }
     
@@ -169,8 +168,7 @@ public class Instance : MonoBehaviour
     
     private void OnDestroy()
     {
-        _commandBuffer?.Release();
-        _commandBuffer = null;
+        RemoveCommandBuffer();
         
         ReleaseBuffer();
         if (_materials != null)

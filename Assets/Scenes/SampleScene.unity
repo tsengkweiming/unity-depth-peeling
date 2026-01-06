@@ -153,10 +153,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _instanceProps:
-  - Mesh: {fileID: 4300000, guid: b77f122f451a2394898a24191c26107c, type: 3}
-    Texture: {fileID: 2800000, guid: e6e99f9ddd45baf4bb95a4f65b0d88de, type: 3}
+  - Mesh: {fileID: -3167862782832498827, guid: 0855ff0ce2b7367428c17910f684afab, type: 3}
+    Texture: {fileID: 0}
     Alpha: 0.3
-    Scale: 1
+    Scale: 0.7
   - Mesh: {fileID: 4300000, guid: be66986effd141b4992d2d78be127139, type: 3}
     Texture: {fileID: 2800000, guid: c621ddb405f9fd24eb7ab79082ce3d10, type: 3}
     Alpha: 0.3
@@ -164,17 +164,20 @@ MonoBehaviour:
   - Mesh: {fileID: 4300000, guid: c236aa7ad6dcabe47abc7d2cf903ae71, type: 3}
     Texture: {fileID: 2800000, guid: 4543a6aa9a0d7874c86b472dbe652692, type: 3}
     Alpha: 0.3
-    Scale: 1
+    Scale: 2
   - Mesh: {fileID: 4300002, guid: f1d84cc28597f5641a3d9cbc4df7e306, type: 3}
     Texture: {fileID: 2800000, guid: a3cc890ba79fb47449fb51893aa9b363, type: 3}
     Alpha: 0.3
-    Scale: 1
-  _size: 6
+    Scale: 1.5
+  _size: 5
   _scale: {x: 0.3, y: 0.3, z: 0.3}
   _count: 200
   _shader: {fileID: 4800000, guid: bc236473f1f26ae4ebd6c42b04a7c5ed, type: 3}
   _zwrite: 1
   _compareFunction: 4
+  _srcFactor: 1
+  _dstFactor: 0
+  _ascendingDrawOrder: 0
 --- !u!4 &442491211
 Transform:
   m_ObjectHideFlags: 0
@@ -297,6 +300,7 @@ GameObject:
   - component: {fileID: 963194226}
   - component: {fileID: 963194230}
   - component: {fileID: 963194229}
+  - component: {fileID: 963194231}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -390,6 +394,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ad60f3c5c9680ba4584096978cada6fe, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _comopsiteType: 0
   _layers: 2
   _lod: 0
   _instance: {fileID: 442491210}
@@ -397,9 +402,6 @@ MonoBehaviour:
   _enable: 0
   _srcFactor: 1
   _dstFactor: 1
-  _colorTexture: {fileID: 0}
-  _depthTextures: []
-  _colorTexs: []
 --- !u!114 &963194230
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -407,13 +409,26 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 963194225}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1d35c57bedbf2a04db870e4286b028d6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   lookAt: {x: 0, y: 0, z: 0}
-  speed: 10
+  speed: 5
+--- !u!114 &963194231
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 963194225}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c856b9a757b821c4093710a36af7bf1e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _targetFPS: 30
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

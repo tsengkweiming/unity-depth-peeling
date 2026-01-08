@@ -28,8 +28,10 @@ public class Instance : MonoBehaviour
     [SerializeField] private Shader _shader;
     [SerializeField] private bool _zwrite;
     [SerializeField] private CompareFunction _compareFunction;
-    [SerializeField] private BlendMode _srcFactor;
-    [SerializeField] private BlendMode _dstFactor;
+    [SerializeField] private BlendMode _srcFactor0;
+    [SerializeField] private BlendMode _dstFactor0;
+    [SerializeField] private BlendMode _srcFactor1;
+    [SerializeField] private BlendMode _dstFactor1;
     private GraphicsBuffer[] _dataBuffers;
     private GraphicsBuffer _argsBuffer;
     private GraphicsBuffer[][] _argsBuffers;
@@ -84,7 +86,7 @@ public class Instance : MonoBehaviour
     }
 
     public void UpdateCommandBuffer(RenderTexture color0, RenderTexture color1, RenderTexture depthRT, 
-        Color? backgroundColor = null, RTClearFlags clearFlags = RTClearFlags.Color | RTClearFlags.Depth, RenderTexture prevDepth = null)
+        Color? backgroundColor = null, RTClearFlags clearFlags = RTClearFlags.Color | RTClearFlags.Depth)
     {
         _commandBuffer ??= new CommandBuffer { name = "Renderer" };
         _commandBuffer.Clear();
@@ -98,8 +100,10 @@ public class Instance : MonoBehaviour
         {
             _materials[i].SetFloat("_ZWrite", _zwrite ? 1 : 0);
             _materials[i].SetFloat("_ZTest", (int)_compareFunction);
-            _materials[i].SetFloat("_SrcFactor", (int)_srcFactor);
-            _materials[i].SetFloat("_DstFactor", (int)_dstFactor);
+            _materials[i].SetFloat("_SrcFactor0", (int)_srcFactor0);
+            _materials[i].SetFloat("_DstFactor0", (int)_dstFactor0);
+            _materials[i].SetFloat("_SrcFactor1", (int)_srcFactor1);
+            _materials[i].SetFloat("_DstFactor1", (int)_dstFactor1);
             _materials[i].SetFloat("_Scale", _instanceProps[i].Scale);
             _materials[i].SetFloat("_Alpha", _instanceProps[i].Alpha);
             _materials[i].SetTexture("_MainTex", _instanceProps[i].Texture);

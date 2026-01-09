@@ -32,6 +32,8 @@ public class Instance : MonoBehaviour
     [SerializeField] private BlendMode _dstFactor0;
     [SerializeField] private BlendMode _srcFactor1;
     [SerializeField] private BlendMode _dstFactor1;
+    [SerializeField] private BlendOp _blendOpRgb;
+    [SerializeField] private BlendOp _blendOpAlpha;
     private GraphicsBuffer[] _dataBuffers;
     private GraphicsBuffer _argsBuffer;
     private GraphicsBuffer[][] _argsBuffers;
@@ -81,6 +83,44 @@ public class Instance : MonoBehaviour
             {
                 _argsBuffers[i][sm] =
                     new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, _args.Length, sizeof(uint));
+            }
+        }
+    }
+
+    public void UpdateCommandBuffer(RenderTargetIdentifier[] colorIds, RenderTargetIdentifier depthId,
+        Color? backgroundColor = null, RTClearFlags clearFlags = RTClearFlags.Color | RTClearFlags.Depth)
+    {
+        _commandBuffer ??= new CommandBuffer { name = "Renderer" };
+        _commandBuffer.Clear();
+        _commandBuffer.SetRenderTarget(colorIds, depthId);
+        var clearColor = backgroundColor ?? Color.clear;
+        _commandBuffer.ClearRenderTarget(clearFlags, clearColor, 1, 0);
+
+        for (var j = 0; j < _instanceProps.Length; j++)
+        {
+            int i = _ascendingDrawOrder ? j : _instanceProps.Length - j - 1;
+            _materials[i].SetFloat("_ZWrite", _zwrite ? 1 : 0);
+            _materials[i].SetFloat("_ZTest", (int)_compareFunction);
+            _materials[i].SetFloat("_SrcFactor0", (int)_srcFactor0);
+            _materials[i].SetFloat("_DstFactor0", (int)_dstFactor0);
+            _materials[i].SetFloat("_SrcFactor1", (int)_srcFactor1);
+            _materials[i].SetFloat("_DstFactor1", (int)_dstFactor1);
+            _materials[i].SetFloat("_Scale", _instanceProps[i].Scale);
+            _materials[i].SetFloat("_Alpha", _instanceProps[i].Alpha);
+            _materials[i].SetTexture("_MainTex", _instanceProps[i].Texture);
+            _materials[i].SetBuffer("_InstanceBuffer", _dataBuffers[i]);
+
+            var mesh = _instanceProps[i].Mesh;
+            for (int sm = 0; sm < mesh.subMeshCount; sm++)
+            {
+                var smInfo = mesh.GetSubMesh(sm);
+                // 0 == number of triangle indices, 1 == population, others are only relevant if drawing submeshes.
+                _args[0] = (uint)smInfo.indexCount;
+                _args[1] = (uint)_count;
+                _args[2] = (uint)smInfo.indexStart;
+                _args[3] = (uint)smInfo.baseVertex;
+                _argsBuffers[i][sm].SetData(_args);
+                _commandBuffer.DrawMeshInstancedIndirect(mesh, sm, _materials[i], -1, _argsBuffers[i][sm]);
             }
         }
     }

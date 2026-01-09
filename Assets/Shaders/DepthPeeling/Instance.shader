@@ -15,8 +15,8 @@ Shader "Hidden/Instanced_DepthPeeling"
         [Enum(UnityEngine.Rendering.BlendMode)] _DstFactor0 ("Dst Blend Factor 0", Float) = 0
 		[Enum(UnityEngine.Rendering.BlendMode)] _SrcFactor1 ("Src Blend Factor 1", Float) = 1
         [Enum(UnityEngine.Rendering.BlendMode)] _DstFactor1 ("Dst Blend Factor 1", Float) = 0
-        [Enum(UnityEngine.Rendering.BlendOp)] _BlendOpRGB ("Blend Operation in RGB", Float) = 0
-        [Enum(UnityEngine.Rendering.BlendOp)] _BlendOpAlpha ("Blend Operation in Alpha", Float) = 0
+        [Enum(UnityEngine.Rendering.BlendOp)] _BlendOp1 ("Blend Operation 1", Float) = 0
+        [Enum(UnityEngine.Rendering.BlendOp)] _BlendOp2 ("Blend Operation 2", Float) = 0
     }
 	CGINCLUDE
     #include "UnityCG.cginc"
@@ -56,7 +56,11 @@ Shader "Hidden/Instanced_DepthPeeling"
     struct f2s
     {
         fixed4 color : COLOR0;
-        fixed4 depth : COLOR1;
+        float4 depth : COLOR1;
+    	#if defined(DUAL_PEELING)
+        float4 depth1 : COLOR2;
+    	#endif
+    	
     };
     StructuredBuffer<InstanceData> _InstanceBuffer      : register(t0);
 
@@ -66,6 +70,7 @@ Shader "Hidden/Instanced_DepthPeeling"
     float  _Alpha;
     float4  _Color;
 	sampler2D _PrevDepthTex;
+	sampler2D _PrevDepthTex1;
 
     v2f vert(vsin v) 
     {
@@ -111,9 +116,8 @@ Shader "Hidden/Instanced_DepthPeeling"
 	        // Standard DDP stores: R = -NearestDepth, G = FarthestDepth
 	        // This allows using the hardware 'MAX' blend op for both.
 	        
-	        float2 minMax = tex2Dproj(_PrevDepthTex, UNITY_PROJ_COORD(IN.screenPos)).rg;
-	        float prevMin = -minMax.r; // Invert R because we stored it as negative
-	        float prevMax = minMax.g;
+	        float prevMin = DecodeFloatRGBA(tex2Dproj(_PrevDepthTex, UNITY_PROJ_COORD(IN.screenPos)));
+	        float prevMax = DecodeFloatRGBA(tex2Dproj(_PrevDepthTex1, UNITY_PROJ_COORD(IN.screenPos)));
 
 	        // ---------------------------------------------------------
 	        // 2. The "Inside" Check
@@ -130,7 +134,7 @@ Shader "Hidden/Instanced_DepthPeeling"
     	
     	InstanceData instanceData = _InstanceBuffer[IN.bufferID];
 		float4 mainTex = tex2D(_MainTex, IN.uv);
-        float4 color = mainTex * instanceData.color;
+        float4 color = mainTex;// * instanceData.color;
     	color.a *= _Alpha;
     	
     	f2s colOut;
@@ -141,7 +145,8 @@ Shader "Hidden/Instanced_DepthPeeling"
 	        // We write -depth to R (so MAX blend becomes MIN logic)
 	        // We write  depth to G (so MAX blend finds the furthest)
 	        // NOTE: This requires your render target to be floating point (RGFloat)!
-	        colOut.depth = float4(-depth, depth, 0, 1); 
+	        colOut.depth = EncodeFloatRGBA(IN.depth); 
+	        colOut.depth1 = EncodeFloatRGBA(IN.depth); 
 	    #else
 	        // Fallback for standard methods
 			colOut.depth = EncodeFloatRGBA(IN.depth);
@@ -164,11 +169,13 @@ Shader "Hidden/Instanced_DepthPeeling"
             Blend 0 [_SrcFactor0] [_DstFactor0]
 			// Blend 0 SrcAlpha OneMinusSrcAlpha
             Blend 1 [_SrcFactor1] [_DstFactor1]
-            BlendOp [_BlendOpRGB], [_BlendOpAlpha]
+            Blend 2 [_SrcFactor1] [_DstFactor1]
+            BlendOp 0 Add
+            BlendOp 1 [_BlendOp1]
+            BlendOp 2 [_BlendOp2]
 			CGPROGRAM
                 #pragma target 5.0
                 #pragma multi_compile_instancing
-                #pragma multi_compile __ DEPTH_PEELING
                 #pragma multi_compile __ FRONT_BACK DUAL_PEELING // why cannot comment out __
 				#pragma vertex vert
 				#pragma fragment frag

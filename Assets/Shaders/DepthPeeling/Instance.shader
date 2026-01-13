@@ -15,6 +15,8 @@ Shader "Hidden/Instanced_DepthPeeling"
         [Enum(UnityEngine.Rendering.BlendMode)] _DstFactor0 ("Dst Blend Factor 0", Float) = 0
 		[Enum(UnityEngine.Rendering.BlendMode)] _SrcFactor1 ("Src Blend Factor 1", Float) = 1
         [Enum(UnityEngine.Rendering.BlendMode)] _DstFactor1 ("Dst Blend Factor 1", Float) = 0
+		[Enum(UnityEngine.Rendering.BlendMode)] _SrcFactor2 ("Src Blend Factor 2", Float) = 1
+        [Enum(UnityEngine.Rendering.BlendMode)] _DstFactor2 ("Dst Blend Factor 2", Float) = 0
         [Enum(UnityEngine.Rendering.BlendOp)] _BlendOpDepth ("Blend Operation in Depth", Float) = 0
     }
 	CGINCLUDE
@@ -97,7 +99,6 @@ Shader "Hidden/Instanced_DepthPeeling"
         // screen
     	OUT.screenPos = ComputeScreenPos(UnityWorldToClipPos(worldPos));
         OUT.depth = -mul(UNITY_MATRIX_V, worldPos).z * _ProjectionParams.w;
-		// OUT.depth = COMPUTE_DEPTH_01;//OUT.vertex.z / OUT.vertex.w;
 
 		// Camera-space depth
 		OUT.z = abs(mul(UNITY_MATRIX_V, worldPos).z);
@@ -119,13 +120,12 @@ Shader "Hidden/Instanced_DepthPeeling"
 		float depth = IN.depth;
     	#if defined(FRONT_BACK)
 			float prevDepth = DecodeFloatRGBA(tex2Dproj(_PrevDepthTex, UNITY_PROJ_COORD(IN.screenPos)));
-			// float prevDepth = DecodeFloatRGBA(tex2D(_PrevDepthTex, UNITY_PROJ_COORD(IN.screenPos.xy / IN.screenPos.w))).r;
 			clip(depth - (prevDepth + EPSILON));
     	#endif
     	
     	InstanceData instanceData = _InstanceBuffer[IN.bufferID];
 		float4 mainTex = tex2D(_MainTex, IN.uv);
-        float4 color = mainTex;// * instanceData.color;
+        float4 color = mainTex * instanceData.color;
     	color.a *= _Alpha;
     	
     	f2s colOut;
@@ -138,23 +138,25 @@ Shader "Hidden/Instanced_DepthPeeling"
 		float prevMin = -prevDepth.x; // negated for MAX blending
         float prevMax = prevDepth.y;
 
-	    if (depth < (prevMin - EPSILON) || depth > (prevMax + EPSILON))
+		if (depth < (prevMin - EPSILON) || depth > (prevMax + EPSILON) || prevMin > prevMax)
 	        discard;
-    	if (depth > prevMin + EPSILON && depth < prevMax - EPSILON)
-    	{
-			colOut.depth = float4(-depth, depth, 0, 0);
-			return colOut;
-    	}
-    	
-		// If this fragment matches the FRONT layer found in the previous pass
-        if (abs(depth - prevMin) <= EPSILON)
-        {
-            colOut.color = color;
-        }
-		if (abs(depth - prevMax) <= EPSILON)
-		{
-			colOut.backColor = float4(color.rgb * color.a, color.a);
-		}
+
+		float4 premultiplied = float4(color.rgb * color.a, color.a);
+	    bool isMinLayer = abs(depth - prevMin) <= EPSILON;
+	    bool isMaxLayer = abs(depth - prevMax) >= EPSILON;
+	    bool isInside   = !isMinLayer && !isMaxLayer;
+    	colOut.color     = isMinLayer ? premultiplied : float4(0,0,0,0);
+	    colOut.backColor = isMaxLayer ? premultiplied : float4(0,0,0,0);
+	    if (isInside)
+	    {
+	        // We are INSIDE = candidates for the NEXT layer. Write valid depths so the MAX blend op can find the new Min/Max.
+	        colOut.depth = float4(-depth, depth, 0, 0);
+	    }
+	    else
+	    {
+	    	// Fragment just've been peeled. Write an extreme negative value to ensure it is ignored by the next depth search.
+	        colOut.depth = float4(-1e20, -1e20, 0, 0);
+	    }
 
 	    #else
 	        // Fallback for standard methods
@@ -182,8 +184,7 @@ Shader "Hidden/Instanced_DepthPeeling"
             BlendOp 1 Add
             Blend 1 [_SrcFactor1] [_DstFactor1]
             BlendOp 2 Add
-            Blend 2 OneMinusDstAlpha One
-            
+			Blend 2 [_SrcFactor2] [_DstFactor2]
 			CGPROGRAM
                 #pragma target 5.0
                 #pragma multi_compile_instancing
@@ -203,7 +204,7 @@ Shader "Hidden/Instanced_DepthPeeling"
             BlendOp 1 Add
             Blend 1 [_SrcFactor1] [_DstFactor1]
             BlendOp 2 Add
-            Blend 2 OneMinusDstAlpha One
+			Blend 2 [_SrcFactor2] [_DstFactor2]
             
 			CGPROGRAM
                 #pragma target 5.0

@@ -39,8 +39,10 @@ public class Instance : MonoBehaviour
     private CommandBuffer _commandBuffer;
     private Material[] _materials;
     private DepthPeelingType _depthPeelingType;
+    private ComopsiteType _compositeType;
     private readonly uint[] _args = { 0, 0, 0, 0, 0 };
     public DepthPeelingType DepthPeelingType { get => _depthPeelingType; set => _depthPeelingType = value; }
+    public ComopsiteType ComopsiteType { get => _compositeType; set => _compositeType = value; }
 
     void Start()
     {
@@ -128,11 +130,26 @@ public class Instance : MonoBehaviour
                     _materials[i].SetFloat("_DstFactor1", (int)BlendMode.Zero);
                     break;
                 case DepthPeelingType.DualPeeling:
+                    _materials[i].SetFloat("_ZWrite", 0);
                     _materials[i].SetFloat("_BlendOpDepth", (int)BlendOp.Max);
                     _materials[i].SetFloat("_SrcFactor0", (int)BlendMode.One);
                     _materials[i].SetFloat("_DstFactor0", (int)BlendMode.One);
-                    _materials[i].SetFloat("_SrcFactor1", (int)BlendMode.SrcAlpha);
-                    _materials[i].SetFloat("_DstFactor1", (int)BlendMode.OneMinusSrcAlpha);
+                    switch (_compositeType)
+                    {
+                        case ComopsiteType.AlphaBlend:
+                        default:
+                            _materials[i].SetFloat("_SrcFactor1", (int)BlendMode.OneMinusDstAlpha);
+                            _materials[i].SetFloat("_DstFactor1", (int)BlendMode.One);
+                            _materials[i].SetFloat("_SrcFactor2", (int)BlendMode.One);
+                            _materials[i].SetFloat("_DstFactor2", (int)BlendMode.OneMinusSrcAlpha);
+                            break;
+                        case ComopsiteType.Additive:
+                            _materials[i].SetFloat("_SrcFactor1", (int)BlendMode.One);
+                            _materials[i].SetFloat("_DstFactor1", (int)BlendMode.One);
+                            _materials[i].SetFloat("_SrcFactor2", (int)BlendMode.One);
+                            _materials[i].SetFloat("_DstFactor2", (int)BlendMode.One);
+                            break;
+                    }
                     break;
             }
 

@@ -108,9 +108,13 @@ Shader "Hidden/Depth Peeling/Composite" {
 			fixed4 frag(v2f i) : SV_Target {
 				float4 front = tex2D(_FrontTex, i.uv);
                 float4 back = tex2D(_BackTex, i.uv);
-				return front;
+				// return front;
+				// return back;
 				#if defined(ALPHA_BLEND)
-				return front + (1 - front.a) * back;
+				// return front + (1 - front.a) * back;
+				float3 finalColor = front.rgb + (1.0 - front.a) * back.rgb;
+			    float finalAlpha = front.a + (1.0 - front.a) * back.a;
+			    return float4(finalColor, finalAlpha);
 				#elif defined(ADDITIVE)
 				return front + back;
 				#endif

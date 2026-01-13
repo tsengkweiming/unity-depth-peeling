@@ -8,7 +8,7 @@ public enum ComopsiteType { AlphaBlend, Additive }
 public class DepthPeeling : MonoBehaviour
 {
     [SerializeField] private DepthPeelingType _depthPeelingType;
-    [SerializeField] private ComopsiteType _comopsiteType;
+    [SerializeField] private ComopsiteType _compositeType;
     [SerializeField] [Range(1, 50)] private int _layers;
     [SerializeField] [Range(0, 4)] private int _lod1;
     [SerializeField] [Range(0, 4)] private int _lod2;
@@ -56,6 +56,7 @@ public class DepthPeeling : MonoBehaviour
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
         _instance.DepthPeelingType = _depthPeelingType;
+        _instance.ComopsiteType = _compositeType;
         CreateTexture();
         Shader.DisableKeyword("FRONT_BACK");
         Shader.DisableKeyword("DUAL_PEELING");
@@ -121,7 +122,7 @@ public class DepthPeeling : MonoBehaviour
         }
 
         // Blend all the layers
-        switch (_comopsiteType)
+        switch (_compositeType)
         {
             case ComopsiteType.AlphaBlend:
             default:

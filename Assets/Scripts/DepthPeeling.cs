@@ -24,6 +24,7 @@ public class DepthPeeling : MonoBehaviour
     void Start()
     {
         _compositeMaterial = new Material(_compositeShader);
+        _depthTextures = new RenderTexture[2];
     }
 
     void CreateTexture()
@@ -34,36 +35,35 @@ public class DepthPeeling : MonoBehaviour
         {
             case DepthPeelingType.Front2Back:
                 default:
-                if(_depthTextures == null || _layers != _depthTextures.Length)
-                    _depthTextures = new RenderTexture[2];
                 _depthTextures[0] = RenderTexture.GetTemporary(Screen.width / lod, Screen.height / lod, 0, RenderTextureFormat.ARGB32);
                 _depthTextures[1] = RenderTexture.GetTemporary(Screen.width / lod, Screen.height / lod, 0, RenderTextureFormat.ARGB32);
+                
+                if(_colorTextures == null || _layers != _colorTextures.Length)
+                    _colorTextures = new RenderTexture[_layers];
+                _colorTextures[0] = RenderTexture.GetTemporary(Screen.width / lod, Screen.height / lod, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
                 break;
             case DepthPeelingType.DualPeeling:
-                if(_depthTextures == null || _layers != _depthTextures.Length)
-                    _depthTextures = new RenderTexture[4];
-                _depthTextures[0] = RenderTexture.GetTemporary(Screen.width / lod, Screen.height / lod, 0, RenderTextureFormat.ARGB32);
-                _depthTextures[1] = RenderTexture.GetTemporary(Screen.width / lod, Screen.height / lod, 0, RenderTextureFormat.ARGB32);
-                _depthTextures[2] = RenderTexture.GetTemporary(Screen.width / lod, Screen.height / lod, 0, RenderTextureFormat.ARGB32);
-                _depthTextures[3] = RenderTexture.GetTemporary(Screen.width / lod, Screen.height / lod, 0, RenderTextureFormat.ARGB32);
+                _depthTextures[0] = RenderTexture.GetTemporary(Screen.width / lod, Screen.height / lod, 0, RenderTextureFormat.RGFloat);
+                _depthTextures[1] = RenderTexture.GetTemporary(Screen.width / lod, Screen.height / lod, 0, RenderTextureFormat.RGFloat);
+                
+                _colorTextures ??= new RenderTexture[2];
+                _colorTextures[0] = RenderTexture.GetTemporary(Screen.width / lod, Screen.height / lod, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+                _colorTextures[1] = RenderTexture.GetTemporary(Screen.width / lod, Screen.height / lod, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
                 break;
         }
-        
-        if(_colorTextures == null || _layers != _colorTextures.Length)
-            _colorTextures = new RenderTexture[_layers];
-        _colorTextures[0] = RenderTexture.GetTemporary(Screen.width / lod, Screen.height / lod, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
     }
 
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
+        _instance.DepthPeelingType = _depthPeelingType;
         CreateTexture();
         Shader.DisableKeyword("FRONT_BACK");
         Shader.DisableKeyword("DUAL_PEELING");
-        RenderTargetIdentifier[] colorIds = new RenderTargetIdentifier[] { new (_colorTextures[0].colorBuffer), new (_depthTextures[0].colorBuffer) };
+        RenderTargetIdentifier[] colorIds = { new (_depthTextures[0].colorBuffer), new (_colorTextures[0].colorBuffer)};
         RenderTargetIdentifier depthId = new RenderTargetIdentifier(_allTexture.depthBuffer);
         if (!_enable)
         {
-            _instance.UpdateCommandBuffer(colorIds, depthId, null, RTClearFlags.ColorDepth);
+            _instance.UpdateCommandBuffer(colorIds, depthId);
             _instance.ExecuteCommandBuffer();
             Graphics.Blit(_colorTextures[0], destination);
             ReleaseRenderTextures();
@@ -71,41 +71,52 @@ public class DepthPeeling : MonoBehaviour
         }
 
         // First iteration to render the scene as normal
-        _instance.UpdateCommandBuffer(colorIds, depthId, new Color(1.0f, 1.0f, 1.0f, 0.0f));
-        _instance.ExecuteCommandBuffer();
-        
+        Color clearColor = new Color(1.0f, 1.0f, 1.0f, 0.0f);
+        Color depthClearColor = clearColor;
+        RTClearFlags clearFlags = RTClearFlags.ColorDepth;
         var lod1 = 1 << _lod1;
         var lod2 = 1 << _lod2;
+        switch (_depthPeelingType)
+        {
+            case DepthPeelingType.Front2Back:
+            default:
+                _instance.UpdateCommandBuffer(colorIds, depthId, clearColor, depthClearColor);
+                _instance.ExecuteCommandBuffer();
+                break;
+            case DepthPeelingType.DualPeeling:
+                Shader.EnableKeyword("DUAL_PEELING");
+                colorIds = new RenderTargetIdentifier[] { new (_depthTextures[0].colorBuffer), new (_colorTextures[0].colorBuffer), 
+                    new (_colorTextures[1].colorBuffer) };
+                clearColor = Color.clear;//new Color(1.0f, 1.0f, 1.0f, 0.0f); //Color.clear;//
+                depthClearColor = new Color(-1e6f, -1e6f, 0.0f, 0.0f);
+                _instance.UpdateCommandBuffer(colorIds, depthId, clearColor, depthClearColor, clearFlags, 1);
+                _instance.ExecuteCommandBuffer();
+                break;
+        }
+        
         // Peel away the depth
         for (int i = 1; i < _layers; i++)
         {
-            _colorTextures[i] = RenderTexture.GetTemporary(Screen.width / lod1, Screen.height / lod1, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
-            int depthCount = _depthTextures.Length;
-            int prevCount = depthCount / 2;
-            int prevId = (1 - i % 2) * prevCount;
             switch (_depthPeelingType)
             {
                 case DepthPeelingType.Front2Back:
                 default:
+                    _colorTextures[i] = RenderTexture.GetTemporary(Screen.width / lod1, Screen.height / lod1, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
                     Shader.EnableKeyword("FRONT_BACK");
-                    Shader.SetGlobalFloat("_BlendOp1", (int)BlendOp.Add);
-                    Shader.SetGlobalFloat("_BlendOp2", (int)BlendOp.Add);
-                    colorIds = new RenderTargetIdentifier[] { new (_colorTextures[i].colorBuffer), new (_depthTextures[i*prevCount%depthCount].colorBuffer) };
+                    colorIds = new RenderTargetIdentifier[] { new (_depthTextures[i%2].colorBuffer) , new (_colorTextures[i].colorBuffer)}; 
+                    // try maybe dont clear depth
                     break;
                 case DepthPeelingType.DualPeeling:
-                    int prevId1 = (1 - i % 2) * prevCount + 1;
                     Shader.EnableKeyword("DUAL_PEELING");
-                    Shader.SetGlobalFloat("_BlendOp1", (int)BlendOp.Min);
-                    Shader.SetGlobalFloat("_BlendOp2", (int)BlendOp.Max);
-                    Shader.SetGlobalTexture("_PrevDepthTex1", _depthTextures[prevId1]);
-                    colorIds = new RenderTargetIdentifier[] { new (_colorTextures[i].colorBuffer), new (_depthTextures[i*prevCount%depthCount].colorBuffer), 
-                        new (_depthTextures[i*prevCount%depthCount+1].colorBuffer) };
+                    clearFlags = RTClearFlags.Depth;
+                    clearColor = Color.clear;//new Color(1.0f, 1.0f, 1.0f, 0.0f); //
+                    colorIds = new RenderTargetIdentifier[] { new (_depthTextures[i%2].colorBuffer), new (_colorTextures[0].colorBuffer), 
+                        new (_colorTextures[1].colorBuffer) };
                     break;
             }
 
-            Shader.SetGlobalTexture("_PrevDepthTex", _depthTextures[prevId]);
-            _instance.UpdateCommandBuffer(colorIds, depthId, new Color(1.0f, 1.0f, 1.0f, 0.0f));
-            // _instance.UpdateCommandBuffer(_colorTextures[i], _depthTextures[i*prevCount%depthCount], _allTexture, new Color(1.0f, 1.0f, 1.0f, 0.0f));
+            Shader.SetGlobalTexture("_PrevDepthTex", _depthTextures[1 - i%2]);
+            _instance.UpdateCommandBuffer(colorIds, depthId, clearColor, depthClearColor, clearFlags);
             _instance.ExecuteCommandBuffer();
         }
 
@@ -122,18 +133,30 @@ public class DepthPeeling : MonoBehaviour
                 _compositeMaterial.EnableKeyword("ADDITIVE");
                 break;
         }
-        RenderTexture colorAccumTex = RenderTexture.GetTemporary(Screen.width / lod2, Screen.height / lod2, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
-        Graphics.Blit(_allTexture, colorAccumTex);
-        for (int i = _layers - 1; i >= 0; i--) {
-            RenderTexture tmpAccumTex = RenderTexture.GetTemporary(Screen.width / lod2, Screen.height / lod2, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
-            _compositeMaterial.SetTexture("_LayerTex", _colorTextures[i]);
-            Graphics.Blit(colorAccumTex, tmpAccumTex, _compositeMaterial, 1);
-            RenderTexture.ReleaseTemporary(colorAccumTex);
-            colorAccumTex = tmpAccumTex;
+        switch (_depthPeelingType)
+        {
+            case DepthPeelingType.Front2Back:
+            default:
+                RenderTexture colorAccumTex = RenderTexture.GetTemporary(Screen.width / lod2, Screen.height / lod2, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+                Graphics.Blit(_allTexture, colorAccumTex);
+                for (int i = _layers - 1; i >= 0; i--) {
+                    RenderTexture tmpAccumTex = RenderTexture.GetTemporary(Screen.width / lod2, Screen.height / lod2, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+                    _compositeMaterial.SetTexture("_LayerTex", _colorTextures[i]);
+                    Graphics.Blit(colorAccumTex, tmpAccumTex, _compositeMaterial, 1);
+                    RenderTexture.ReleaseTemporary(colorAccumTex);
+                    colorAccumTex = tmpAccumTex;
+                }
+                Graphics.Blit(colorAccumTex, destination);
+                RenderTexture.ReleaseTemporary(colorAccumTex);
+                break;
+            case DepthPeelingType.DualPeeling:
+                
+                _compositeMaterial.SetTexture("_FrontTex", _colorTextures[0]);
+                _compositeMaterial.SetTexture("_BackTex", _colorTextures[1]);
+                Graphics.Blit(null, destination, _compositeMaterial, 2);
+                
+                break;
         }
-        
-        Graphics.Blit(colorAccumTex, destination);
-        RenderTexture.ReleaseTemporary(colorAccumTex);
         ReleaseRenderTextures();
     }
 
@@ -145,11 +168,11 @@ public class DepthPeeling : MonoBehaviour
             if(_depthTextures.Length > i && _depthTextures[i] != null)
                 RenderTexture.ReleaseTemporary(_depthTextures[i]);
         }
-        
-        for (int i = 0; i < _layers; i++) 
+
+        foreach (var colotTex in _colorTextures)
         {
-            if(_colorTextures.Length > i && _colorTextures[i] != null)
-                RenderTexture.ReleaseTemporary(_colorTextures[i]);
+            if(colotTex != null)
+                RenderTexture.ReleaseTemporary(colotTex);
         }
     }
     

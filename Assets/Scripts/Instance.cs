@@ -32,14 +32,16 @@ public class Instance : MonoBehaviour
     [SerializeField] private BlendMode _dstFactor0;
     [SerializeField] private BlendMode _srcFactor1;
     [SerializeField] private BlendMode _dstFactor1;
-    [SerializeField] private BlendOp _blendOpRgb;
-    [SerializeField] private BlendOp _blendOpAlpha;
+    [SerializeField] private bool _ascendingDrawOrder;
     private GraphicsBuffer[] _dataBuffers;
     private GraphicsBuffer _argsBuffer;
     private GraphicsBuffer[][] _argsBuffers;
     private CommandBuffer _commandBuffer;
     private Material[] _materials;
+    private DepthPeelingType _depthPeelingType;
     private readonly uint[] _args = { 0, 0, 0, 0, 0 };
+    public DepthPeelingType DepthPeelingType { get => _depthPeelingType; set => _depthPeelingType = value; }
+
     void Start()
     {
         _materials  = new Material[_instanceProps.Length];
@@ -88,27 +90,49 @@ public class Instance : MonoBehaviour
     }
 
     public void UpdateCommandBuffer(RenderTargetIdentifier[] colorIds, RenderTargetIdentifier depthId,
-        Color? backgroundColor = null, RTClearFlags clearFlags = RTClearFlags.Color | RTClearFlags.Depth)
+        Color? backgroundColor = null, Color? depthClearColor = null, RTClearFlags clearFlags = RTClearFlags.Color | RTClearFlags.Depth, int pass = 0)
     {
         _commandBuffer ??= new CommandBuffer { name = "Renderer" };
         _commandBuffer.Clear();
-        _commandBuffer.SetRenderTarget(colorIds, depthId);
-        var clearColor = backgroundColor ?? Color.clear;
+        var clearColor = depthClearColor ?? Color.clear;
+        _commandBuffer.SetRenderTarget(colorIds[0]);
         _commandBuffer.ClearRenderTarget(clearFlags, clearColor, 1, 0);
-
+        for (var i = 1; i < colorIds.Length; i++)
+        {
+            _commandBuffer.SetRenderTarget(colorIds[i], depthId);
+            clearColor = backgroundColor ?? Color.clear;
+            _commandBuffer.ClearRenderTarget(clearFlags, clearColor, 1, 0);
+        }
+        
+        _commandBuffer.SetRenderTarget(colorIds, depthId);
+        
         for (var j = 0; j < _instanceProps.Length; j++)
         {
             int i = _ascendingDrawOrder ? j : _instanceProps.Length - j - 1;
             _materials[i].SetFloat("_ZWrite", _zwrite ? 1 : 0);
             _materials[i].SetFloat("_ZTest", (int)_compareFunction);
-            _materials[i].SetFloat("_SrcFactor0", (int)_srcFactor0);
-            _materials[i].SetFloat("_DstFactor0", (int)_dstFactor0);
-            _materials[i].SetFloat("_SrcFactor1", (int)_srcFactor1);
-            _materials[i].SetFloat("_DstFactor1", (int)_dstFactor1);
             _materials[i].SetFloat("_Scale", _instanceProps[i].Scale);
             _materials[i].SetFloat("_Alpha", _instanceProps[i].Alpha);
             _materials[i].SetTexture("_MainTex", _instanceProps[i].Texture);
             _materials[i].SetBuffer("_InstanceBuffer", _dataBuffers[i]);
+            switch (_depthPeelingType)
+            {
+                case DepthPeelingType.Front2Back:
+                default:
+                    _materials[i].SetFloat("_BlendOpDepth", (int)BlendOp.Add);
+                    _materials[i].SetFloat("_SrcFactor0", (int)BlendMode.One);
+                    _materials[i].SetFloat("_DstFactor0", (int)BlendMode.Zero);
+                    _materials[i].SetFloat("_SrcFactor1", (int)BlendMode.One);
+                    _materials[i].SetFloat("_DstFactor1", (int)BlendMode.Zero);
+                    break;
+                case DepthPeelingType.DualPeeling:
+                    _materials[i].SetFloat("_BlendOpDepth", (int)BlendOp.Max);
+                    _materials[i].SetFloat("_SrcFactor0", (int)BlendMode.One);
+                    _materials[i].SetFloat("_DstFactor0", (int)BlendMode.One);
+                    _materials[i].SetFloat("_SrcFactor1", (int)BlendMode.SrcAlpha);
+                    _materials[i].SetFloat("_DstFactor1", (int)BlendMode.OneMinusSrcAlpha);
+                    break;
+            }
 
             var mesh = _instanceProps[i].Mesh;
             for (int sm = 0; sm < mesh.subMeshCount; sm++)
@@ -120,7 +144,7 @@ public class Instance : MonoBehaviour
                 _args[2] = (uint)smInfo.indexStart;
                 _args[3] = (uint)smInfo.baseVertex;
                 _argsBuffers[i][sm].SetData(_args);
-                _commandBuffer.DrawMeshInstancedIndirect(mesh, sm, _materials[i], -1, _argsBuffers[i][sm]);
+                _commandBuffer.DrawMeshInstancedIndirect(mesh, sm, _materials[i], pass, _argsBuffers[i][sm]);
             }
         }
     }
@@ -136,8 +160,9 @@ public class Instance : MonoBehaviour
         var clearColor = backgroundColor ?? Color.clear;
         _commandBuffer.ClearRenderTarget(clearFlags, clearColor, 1, 0);
 
-        for (var i = 0; i < _instanceProps.Length; i++)
+        for (var j = 0; j < _instanceProps.Length; j++)
         {
+            int i = _ascendingDrawOrder ? j : _instanceProps.Length - j - 1;
             _materials[i].SetFloat("_ZWrite", _zwrite ? 1 : 0);
             _materials[i].SetFloat("_ZTest", (int)_compareFunction);
             _materials[i].SetFloat("_SrcFactor0", (int)_srcFactor0);

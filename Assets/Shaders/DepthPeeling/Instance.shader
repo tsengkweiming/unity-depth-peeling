@@ -15,8 +15,7 @@ Shader "Hidden/Instanced_DepthPeeling"
         [Enum(UnityEngine.Rendering.BlendMode)] _DstFactor0 ("Dst Blend Factor 0", Float) = 0
 		[Enum(UnityEngine.Rendering.BlendMode)] _SrcFactor1 ("Src Blend Factor 1", Float) = 1
         [Enum(UnityEngine.Rendering.BlendMode)] _DstFactor1 ("Dst Blend Factor 1", Float) = 0
-        [Enum(UnityEngine.Rendering.BlendOp)] _BlendOp1 ("Blend Operation 1", Float) = 0
-        [Enum(UnityEngine.Rendering.BlendOp)] _BlendOp2 ("Blend Operation 2", Float) = 0
+        [Enum(UnityEngine.Rendering.BlendOp)] _BlendOpDepth ("Blend Operation in Depth", Float) = 0
     }
 	CGINCLUDE
     #include "UnityCG.cginc"
@@ -35,6 +34,7 @@ Shader "Hidden/Instanced_DepthPeeling"
 	#define TAU 6.28318530718
 	#endif 
     #define IDENTITY_MATRIX float4x4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+    #define EPSILON 0.00001
     
     struct vsin {
         uint   vid: SV_VertexID;
@@ -55,12 +55,17 @@ Shader "Hidden/Instanced_DepthPeeling"
     
     struct f2s
     {
-        fixed4 color : COLOR0;
-        float4 depth : COLOR1;
+        float4 depth : COLOR0;
+        fixed4 color : COLOR1;
     	#if defined(DUAL_PEELING)
-        float4 depth1 : COLOR2;
+        fixed4 backColor : COLOR2;
     	#endif
-    	
+    };
+    struct f2s2
+    {
+        float4 depth : COLOR0;
+        fixed4 color : COLOR1;
+        fixed4 backColor : COLOR2;
     };
     StructuredBuffer<InstanceData> _InstanceBuffer      : register(t0);
 
@@ -70,7 +75,6 @@ Shader "Hidden/Instanced_DepthPeeling"
     float  _Alpha;
     float4  _Color;
 	sampler2D _PrevDepthTex;
-	sampler2D _PrevDepthTex1;
 
     v2f vert(vsin v) 
     {
@@ -100,36 +104,41 @@ Shader "Hidden/Instanced_DepthPeeling"
         return OUT;
     }
 
+    f2s2 fragInit(v2f IN) : SV_Target
+    {
+		float depth = IN.depth;
+    	
+    	f2s2 colOut;
+        colOut.depth = float4(-depth, depth, 0, 0);
+        colOut.color = float4(0,0,0,0);
+        colOut.backColor = float4(0,0,0,0);
+        return colOut;
+    }
     f2s frag(v2f IN) : SV_Target
     {
 		float depth = IN.depth;
     	#if defined(FRONT_BACK)
 			float prevDepth = DecodeFloatRGBA(tex2Dproj(_PrevDepthTex, UNITY_PROJ_COORD(IN.screenPos)));
 			// float prevDepth = DecodeFloatRGBA(tex2D(_PrevDepthTex, UNITY_PROJ_COORD(IN.screenPos.xy / IN.screenPos.w))).r;
-			clip(depth - (prevDepth + 0.00001));
+			clip(depth - (prevDepth + EPSILON));
     	
     	#elif defined(DUAL_PEELING)
-			// ---------------------------------------------------------
-	        // 1. Fetch Previous Min/Max
-	        // ---------------------------------------------------------
-	        // Note: For Dual Peeling, _PrevDepthTex MUST be an RGFloat texture.
-	        // Standard DDP stores: R = -NearestDepth, G = FarthestDepth
-	        // This allows using the hardware 'MAX' blend op for both.
-	        
-	        float prevMin = DecodeFloatRGBA(tex2Dproj(_PrevDepthTex, UNITY_PROJ_COORD(IN.screenPos)));
-	        float prevMax = DecodeFloatRGBA(tex2Dproj(_PrevDepthTex1, UNITY_PROJ_COORD(IN.screenPos)));
+	        float2 prevDepth = tex2Dproj(_PrevDepthTex, UNITY_PROJ_COORD(IN.screenPos)).rg;
+			float prevMin = -prevDepth.x; // negated for MAX blending
+            float prevMax = prevDepth.y;
 
-	        // ---------------------------------------------------------
-	        // 2. The "Inside" Check
-	        // ---------------------------------------------------------
-	        // We discard if the current fragment is:
-	        // A) "Outside" the range (closer than prevMin or further than prevMax)
-	        // B) "On" the previous layers (equal to prevMin or prevMax)
-	        // C) The previous range was invalid (prevMin >= prevMax)
-	        
-	        // Using a small epsilon (0.00001) to handle floating point imprecision
-	        if (depth <= (prevMin + 0.00001) || depth >= (prevMax - 0.00001) || prevMin >= prevMax)
-	            discard;
+    		// if (prevMin > prevMax)
+    		// 	discard;
+			// // Using a small epsilon (0.00001) to handle floating point imprecision
+			// if (depth < (prevMin + EPSILON) || depth > (prevMax - EPSILON))
+			// 	discard;
+    	
+    		// 2. Discard Check
+		    // We discard ONLY if we are strictly OUTSIDE the onion skin.
+		    // We use '- EPSILON' for min and '+ EPSILON' for max to ENSURE we KEEP the boundary layers.
+		    // If depth == prevMin, (prevMin < prevMin + Epsilon) is true, so we do NOT discard.
+		    if (depth < (prevMin - EPSILON) || depth > (prevMax + EPSILON) || prevMin > prevMax)
+		        discard;
     	#endif
     	
     	InstanceData instanceData = _InstanceBuffer[IN.bufferID];
@@ -138,19 +147,52 @@ Shader "Hidden/Instanced_DepthPeeling"
     	color.a *= _Alpha;
     	
     	f2s colOut;
-    	colOut.color = color;
-
     	#if defined(DUAL_PEELING)
-	        // For Dual Peeling, we need to write the NEW depths for the next pass.
-	        // We write -depth to R (so MAX blend becomes MIN logic)
-	        // We write  depth to G (so MAX blend finds the furthest)
-	        // NOTE: This requires your render target to be floating point (RGFloat)!
-	        colOut.depth = EncodeFloatRGBA(IN.depth); 
-	        colOut.depth1 = EncodeFloatRGBA(IN.depth); 
+    	// 3. Identify Layer Roles
+	    bool isMinLayer = (depth - prevMin) <= EPSILON;
+	    bool isMaxLayer = (depth - prevMax) >= EPSILON;
+	    bool isInside   = !isMinLayer && !isMaxLayer; // Strictly inside
+    	// --- COLOR OUTPUT (Job A) ---
+		// Only write color if we match the boundary found in the previous pass
+	    colOut.color     = isMinLayer ? color : float4(0,0,0,0);
+	    // Back color often requires premultiplied alpha for under-blending
+	    colOut.backColor = isMaxLayer ? float4(color.rgb * color.a, color.a) : float4(0,0,0,0);
+    	// --- DEPTH OUTPUT (Job B) ---
+	    if (isInside)
+	    {
+	        // We are INSIDE. We are candidates for the NEXT layer.
+	        // Write valid depths so the MAX blend op can find the new Min/Max.
+	        colOut.depth = float4(-depth, depth, 0, 0);
+	    }
+	    else
+	    {
+	        // We are the current Min/Max. We have been peeled.
+	        // Write GARBAGE depth so we are ignored in the next pass's depth search.
+	        colOut.depth = float4(-1e20, -1e20, 0, 0);
+	    }
+    	  //   colOut.depth = float4(-depth, depth, 0, 0);
+       //      colOut.color = float4(0,0,0,0);
+       //      colOut.backColor = float4(0,0,0,0);
+       //
+       //      if ((depth - prevMin) <= EPSILON)
+       //      {
+       //          colOut.color = color;
+    			// // colOut.depth = float4(-1e9, -1e9, 0, 0);
+       //      }
+       //
+       //      if ((depth - prevMax) <= EPSILON)
+       //      {
+       //          // For the back layer, we premultiply alpha for Under-blending
+       //          colOut.backColor = float4(color.rgb * color.a, color.a);
+    			// // colOut.depth = float4(-1e9, -1e9, 0, 0);
+       //      }
+
 	    #else
 	        // Fallback for standard methods
-			colOut.depth = EncodeFloatRGBA(IN.depth);
+    		colOut.color = color;
+			colOut.depth = EncodeFloatRGBA(depth);
 	    #endif
+    	
         return colOut;
     }
     ENDCG
@@ -166,19 +208,39 @@ Shader "Hidden/Instanced_DepthPeeling"
 			Name "Forward_Pass"
             ZWrite [_ZWrite]
 			ZTest  [_ZTest]
+            BlendOp 0 [_BlendOpDepth]
             Blend 0 [_SrcFactor0] [_DstFactor0]
-			// Blend 0 SrcAlpha OneMinusSrcAlpha
+            BlendOp 1 Add
             Blend 1 [_SrcFactor1] [_DstFactor1]
-            Blend 2 [_SrcFactor1] [_DstFactor1]
-            BlendOp 0 Add
-            BlendOp 1 [_BlendOp1]
-            BlendOp 2 [_BlendOp2]
+            BlendOp 2 Add
+            Blend 2 OneMinusDstAlpha One
+            
 			CGPROGRAM
                 #pragma target 5.0
                 #pragma multi_compile_instancing
-                #pragma multi_compile __ FRONT_BACK DUAL_PEELING // why cannot comment out __
+                #pragma multi_compile __ FRONT_BACK DUAL_PEELING
 				#pragma vertex vert
 				#pragma fragment frag
+			ENDCG
+		}
+
+		Pass 
+		{
+			Name "DDP_InitPass"
+			ZWrite [_ZWrite]
+			ZTest  [_ZTest]
+            BlendOp 0 [_BlendOpDepth]
+            Blend 0 [_SrcFactor0] [_DstFactor0]
+            BlendOp 1 Add
+            Blend 1 [_SrcFactor1] [_DstFactor1]
+            BlendOp 2 Add
+            Blend 2 OneMinusDstAlpha One
+            
+			CGPROGRAM
+                #pragma target 5.0
+                #pragma multi_compile_instancing
+				#pragma vertex vert
+				#pragma fragment fragInit
 			ENDCG
 		}
 	}

@@ -63,7 +63,7 @@ public class DepthPeeling : MonoBehaviour
         RenderTargetIdentifier depthId = new RenderTargetIdentifier(_allTexture.depthBuffer);
         if (!_enable)
         {
-            _instance.UpdateCommandBuffer(colorIds, depthId);
+            _instance.UpdateCommandBuffer(colorIds, depthId, Color.clear, Color.clear);
             _instance.ExecuteCommandBuffer();
             Graphics.Blit(_colorTextures[0], destination);
             ReleaseRenderTextures();
@@ -71,8 +71,8 @@ public class DepthPeeling : MonoBehaviour
         }
 
         // First iteration to render the scene as normal
-        Color clearColor = new Color(1.0f, 1.0f, 1.0f, 0.0f);
-        Color depthClearColor = clearColor;
+        Color? clearColor = new Color(1.0f, 1.0f, 1.0f, 0.0f);
+        Color? depthClearColor = clearColor;
         RTClearFlags clearFlags = RTClearFlags.ColorDepth;
         var lod1 = 1 << _lod1;
         var lod2 = 1 << _lod2;
@@ -87,8 +87,8 @@ public class DepthPeeling : MonoBehaviour
                 Shader.EnableKeyword("DUAL_PEELING");
                 colorIds = new RenderTargetIdentifier[] { new (_depthTextures[0].colorBuffer), new (_colorTextures[0].colorBuffer), 
                     new (_colorTextures[1].colorBuffer) };
-                clearColor = Color.clear;//new Color(1.0f, 1.0f, 1.0f, 0.0f); //Color.clear;//
-                depthClearColor = new Color(-1e6f, -1e6f, 0.0f, 0.0f);
+                clearColor = Color.clear;
+                depthClearColor = new Color(-1e20f, -1e20f, 0.0f, 0.0f);
                 _instance.UpdateCommandBuffer(colorIds, depthId, clearColor, depthClearColor, clearFlags, 1);
                 _instance.ExecuteCommandBuffer();
                 break;
@@ -108,8 +108,8 @@ public class DepthPeeling : MonoBehaviour
                     break;
                 case DepthPeelingType.DualPeeling:
                     Shader.EnableKeyword("DUAL_PEELING");
-                    clearFlags = RTClearFlags.Depth;
-                    clearColor = Color.clear;//new Color(1.0f, 1.0f, 1.0f, 0.0f); //
+                    clearColor = null; // don't clear accumulate color
+                    depthClearColor = new Color(-1e20f, -1e20f, 0.0f, 0.0f); // but clear the depth to initial
                     colorIds = new RenderTargetIdentifier[] { new (_depthTextures[i%2].colorBuffer), new (_colorTextures[0].colorBuffer), 
                         new (_colorTextures[1].colorBuffer) };
                     break;

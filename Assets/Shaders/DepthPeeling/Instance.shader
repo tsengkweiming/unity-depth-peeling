@@ -121,24 +121,6 @@ Shader "Hidden/Instanced_DepthPeeling"
 			float prevDepth = DecodeFloatRGBA(tex2Dproj(_PrevDepthTex, UNITY_PROJ_COORD(IN.screenPos)));
 			// float prevDepth = DecodeFloatRGBA(tex2D(_PrevDepthTex, UNITY_PROJ_COORD(IN.screenPos.xy / IN.screenPos.w))).r;
 			clip(depth - (prevDepth + EPSILON));
-    	
-    	#elif defined(DUAL_PEELING)
-	        float2 prevDepth = tex2Dproj(_PrevDepthTex, UNITY_PROJ_COORD(IN.screenPos)).rg;
-			float prevMin = -prevDepth.x; // negated for MAX blending
-            float prevMax = prevDepth.y;
-
-    		// if (prevMin > prevMax)
-    		// 	discard;
-			// // Using a small epsilon (0.00001) to handle floating point imprecision
-			// if (depth < (prevMin + EPSILON) || depth > (prevMax - EPSILON))
-			// 	discard;
-    	
-    		// 2. Discard Check
-		    // We discard ONLY if we are strictly OUTSIDE the onion skin.
-		    // We use '- EPSILON' for min and '+ EPSILON' for max to ENSURE we KEEP the boundary layers.
-		    // If depth == prevMin, (prevMin < prevMin + Epsilon) is true, so we do NOT discard.
-		    if (depth < (prevMin - EPSILON) || depth > (prevMax + EPSILON) || prevMin > prevMax)
-		        discard;
     	#endif
     	
     	InstanceData instanceData = _InstanceBuffer[IN.bufferID];
@@ -148,44 +130,31 @@ Shader "Hidden/Instanced_DepthPeeling"
     	
     	f2s colOut;
     	#if defined(DUAL_PEELING)
-    	// 3. Identify Layer Roles
-	    bool isMinLayer = (depth - prevMin) <= EPSILON;
-	    bool isMaxLayer = (depth - prevMax) >= EPSILON;
-	    bool isInside   = !isMinLayer && !isMaxLayer; // Strictly inside
-    	// --- COLOR OUTPUT (Job A) ---
-		// Only write color if we match the boundary found in the previous pass
-	    colOut.color     = isMinLayer ? color : float4(0,0,0,0);
-	    // Back color often requires premultiplied alpha for under-blending
-	    colOut.backColor = isMaxLayer ? float4(color.rgb * color.a, color.a) : float4(0,0,0,0);
-    	// --- DEPTH OUTPUT (Job B) ---
-	    if (isInside)
-	    {
-	        // We are INSIDE. We are candidates for the NEXT layer.
-	        // Write valid depths so the MAX blend op can find the new Min/Max.
-	        colOut.depth = float4(-depth, depth, 0, 0);
-	    }
-	    else
-	    {
-	        // We are the current Min/Max. We have been peeled.
-	        // Write GARBAGE depth so we are ignored in the next pass's depth search.
-	        colOut.depth = float4(-1e20, -1e20, 0, 0);
-	    }
-    	  //   colOut.depth = float4(-depth, depth, 0, 0);
-       //      colOut.color = float4(0,0,0,0);
-       //      colOut.backColor = float4(0,0,0,0);
-       //
-       //      if ((depth - prevMin) <= EPSILON)
-       //      {
-       //          colOut.color = color;
-    			// // colOut.depth = float4(-1e9, -1e9, 0, 0);
-       //      }
-       //
-       //      if ((depth - prevMax) <= EPSILON)
-       //      {
-       //          // For the back layer, we premultiply alpha for Under-blending
-       //          colOut.backColor = float4(color.rgb * color.a, color.a);
-    			// // colOut.depth = float4(-1e9, -1e9, 0, 0);
-       //      }
+	    colOut.depth = float4(-1e20, -1e20, 0, 0);
+	    colOut.color = float4(0,0,0,0);
+	    colOut.backColor = float4(0,0,0,0);
+    	
+        float2 prevDepth = tex2Dproj(_PrevDepthTex, UNITY_PROJ_COORD(IN.screenPos)).rg;
+		float prevMin = -prevDepth.x; // negated for MAX blending
+        float prevMax = prevDepth.y;
+
+	    if (depth < (prevMin - EPSILON) || depth > (prevMax + EPSILON))
+	        discard;
+    	if (depth > prevMin + EPSILON && depth < prevMax - EPSILON)
+    	{
+			colOut.depth = float4(-depth, depth, 0, 0);
+			return colOut;
+    	}
+    	
+		// If this fragment matches the FRONT layer found in the previous pass
+        if (abs(depth - prevMin) <= EPSILON)
+        {
+            colOut.color = color;
+        }
+		if (abs(depth - prevMax) <= EPSILON)
+		{
+			colOut.backColor = float4(color.rgb * color.a, color.a);
+		}
 
 	    #else
 	        // Fallback for standard methods

@@ -90,18 +90,20 @@ public class Instance : MonoBehaviour
     }
 
     public void UpdateCommandBuffer(RenderTargetIdentifier[] colorIds, RenderTargetIdentifier depthId,
-        Color? backgroundColor = null, Color? depthClearColor = null, RTClearFlags clearFlags = RTClearFlags.Color | RTClearFlags.Depth, int pass = 0)
+        Color? backgroundColor = null, Color? depthClearColor = null, RTClearFlags clearFlags = RTClearFlags.ColorDepth, int pass = 0)
     {
         _commandBuffer ??= new CommandBuffer { name = "Renderer" };
         _commandBuffer.Clear();
         var clearColor = depthClearColor ?? Color.clear;
+        var clearFlagsInner = depthClearColor.HasValue ? clearFlags :  RTClearFlags.Depth;
         _commandBuffer.SetRenderTarget(colorIds[0]);
-        _commandBuffer.ClearRenderTarget(clearFlags, clearColor, 1, 0);
+        _commandBuffer.ClearRenderTarget(clearFlagsInner, clearColor, 1, 0);
         for (var i = 1; i < colorIds.Length; i++)
         {
             _commandBuffer.SetRenderTarget(colorIds[i], depthId);
             clearColor = backgroundColor ?? Color.clear;
-            _commandBuffer.ClearRenderTarget(clearFlags, clearColor, 1, 0);
+            clearFlagsInner = backgroundColor.HasValue ? clearFlags :  RTClearFlags.Depth;
+            _commandBuffer.ClearRenderTarget(clearFlagsInner, clearColor, 1, 0);
         }
         
         _commandBuffer.SetRenderTarget(colorIds, depthId);
